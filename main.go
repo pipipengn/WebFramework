@@ -1,16 +1,19 @@
 package main
 
-import "WebFramework/web"
+import (
+	"WebFramework/web"
+	"fmt"
+)
 
 func main() {
 	s := web.NewHttpServer()
+	fmt.Println(s.MatchRoute("/user/:id(^[0-9]+$)", "/user/123"))
+	fmt.Println(s.MatchRoute("/user/:id(^[0-9]+$)", "/user/qweqrw"))
 
-	s.Get("/user/:id(^[0-9]+$)", func(c *web.Context) {
-		c.JSON("qwer")
-	})
-
-	_ = s.Start(":8080")
-
+	//s.Get("/user/:id(^[0-9]+$)", func(c *web.Context) {
+	//	c.JSON("qwer")
+	//})
+	//
 	//s.Get("/order/:pid/:mid", func(c *web.Context) {
 	//	m := map[string]string{"pid": c.Param("pid"), "mid": c.Param("mid")}
 	//	c.JSON(m)
@@ -30,7 +33,7 @@ func main() {
 	//		"method": "/abc/:a/:b",
 	//	})
 	//})
-	//
+
 	//_ = s.Start(":8080")
 
 	//r := gin.Default()

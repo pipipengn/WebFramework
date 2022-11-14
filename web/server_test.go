@@ -29,6 +29,7 @@ func TestAddRouter(t *testing.T) {
 		{http.MethodGet, "/*/abc/*"},
 
 		{http.MethodGet, "/order/detail/:id"},
+		{http.MethodGet, "/order/detail/:id/qwe"},
 
 		{http.MethodGet, "/user/:id(^[0-9]+$)"},
 	}
@@ -78,7 +79,13 @@ func TestAddRouter(t *testing.T) {
 								pathParam: &node{
 									path:       ":id",
 									handleFunc: mockHandler,
-									children:   map[string]*node{},
+									children: map[string]*node{
+										"qwe": {
+											path:       "qwe",
+											handleFunc: mockHandler,
+											children:   map[string]*node{},
+										},
+									},
 								},
 							},
 						},
@@ -239,10 +246,6 @@ func (n *node) equals(y *node) (string, bool) {
 	} else if n.pathParam != nil || y.pathParam != nil {
 		return "pathParam error", false
 	}
-
-	//else if n.pathParam.regExpr != nil || y.pathParam.regExpr != nil {
-	//	return "regex: one exists, another does not exist", false
-	//}
 
 	for k, root1 := range n.children {
 		root2, ok := y.children[k]

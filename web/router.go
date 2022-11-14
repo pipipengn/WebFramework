@@ -18,6 +18,7 @@ func newRouter() *router {
 
 type node struct {
 	path       string
+	fullPath   string
 	handleFunc HandleFunc
 	children   map[string]*node
 	wildcard   *node
@@ -39,9 +40,11 @@ func (r *router) addRoute(httpMethod, path string, handleFunc HandleFunc) {
 
 	if path == "/" {
 		if root.handleFunc != nil {
-			panic(fmt.Sprintf("path %s already registed", path))
+			panic(fmt.Sprintf("'%s' conflict with existed path", path))
 		}
 		root.handleFunc = handleFunc
+		root.fullPath = "/"
+		fmt.Println("/")
 		return
 	}
 
@@ -58,6 +61,7 @@ func (r *router) addRoute(httpMethod, path string, handleFunc HandleFunc) {
 		panic(fmt.Sprintf("'%s' conflict with existed path", path))
 	}
 	cur.handleFunc = handleFunc
+	fmt.Println(cur.fullPath)
 }
 
 func fetchRegexp(seg string) (string, *regexp.Regexp) {
@@ -77,12 +81,20 @@ func fetchRegexp(seg string) (string, *regexp.Regexp) {
 	return seg, nil
 }
 
+func createFullPath(n *node, path string) string {
+	if n.fullPath == "/" {
+		return "/" + path
+	}
+	return n.fullPath + "/" + path
+}
+
 // getChildOrCreate: get child node if existed, otherwise create and return
 func (n *node) getChildOrCreate(seg string) *node {
 	if seg[0] == ':' {
 		seg, regex := fetchRegexp(seg)
 		if n.pathParam != nil {
-			if n.pathParam.path != seg || n.pathParam.regExpr.String() != regex.String() {
+			if n.pathParam.path != seg ||
+				(regex != nil && n.pathParam.regExpr != nil && n.pathParam.regExpr.String() != regex.String()) {
 				panic(fmt.Sprintf("'%s' is conflict with existed path param '%s'", seg, n.pathParam.path))
 			}
 			return n.pathParam
@@ -91,10 +103,15 @@ func (n *node) getChildOrCreate(seg string) *node {
 		if n.wildcard != nil {
 			panic(fmt.Sprintf("'%s' is conflict with existed wildcard '%s'", seg, n.wildcard.path))
 		}
+		newseg := seg
+		if regex != nil {
+			newseg += fmt.Sprintf("(%s)", regex.String())
+		}
 		n.pathParam = &node{
 			path:     seg,
 			children: map[string]*node{},
 			regExpr:  regex,
+			fullPath: createFullPath(n, newseg),
 		}
 		return n.pathParam
 	}
@@ -107,6 +124,7 @@ func (n *node) getChildOrCreate(seg string) *node {
 			n.wildcard = &node{
 				path:     "*",
 				children: map[string]*node{},
+				fullPath: createFullPath(n, seg),
 			}
 		}
 		return n.wildcard
@@ -116,6 +134,7 @@ func (n *node) getChildOrCreate(seg string) *node {
 		n.children[seg] = &node{
 			path:     seg,
 			children: map[string]*node{},
+			fullPath: createFullPath(n, seg),
 		}
 	}
 

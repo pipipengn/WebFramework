@@ -34,7 +34,6 @@ func (h *httpServer) ServeHTTP(writer http.ResponseWriter, request *http.Request
 
 func (h *httpServer) serve(c *Context) {
 	match, ok := h.findRoute(c.Request.Method, c.Request.URL.Path)
-	//!(match.path == "*" && match.isLastWildcard)
 	if !ok || match.handleFunc == nil {
 		c.Writer.WriteHeader(404)
 		_, _ = c.Writer.Write([]byte("Not Found"))
@@ -90,4 +89,13 @@ func (h *httpServer) Trace(path string, handleFunc HandleFunc) {
 
 func (h *httpServer) Connect(path string, handleFunc HandleFunc) {
 	h.addRoute(http.MethodConnect, path, handleFunc)
+}
+
+func (h *httpServer) MatchRoute(route, path string) bool {
+	r := newRouter()
+	r.addRoute(http.MethodGet, route, func(c *Context) {})
+	if _, ok := r.findRoute(http.MethodGet, path); !ok {
+		return false
+	}
+	return true
 }
