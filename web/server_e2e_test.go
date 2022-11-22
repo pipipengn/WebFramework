@@ -7,10 +7,33 @@ import (
 
 func TestServerE2E(t *testing.T) {
 	s := NewHttpServer()
-	s.Get("/user", func(c *Context) {
-		if _, err := c.Writer.Write([]byte("aaa")); err != nil {
-			fmt.Println("error", err.Error())
-		}
-	})
-	_ = s.Start(":8080")
+	s.middlewares = []Middleware{
+		func(next HandleFunc) HandleFunc {
+			return func(c *Context) {
+				fmt.Println("第1个before")
+				next(c)
+				fmt.Println("第1个after")
+			}
+		},
+		func(next HandleFunc) HandleFunc {
+			return func(c *Context) {
+				fmt.Println("第2个before")
+				next(c)
+				fmt.Println("第2个after")
+			}
+		},
+		func(next HandleFunc) HandleFunc {
+			return func(c *Context) {
+				fmt.Println("第3个before")
+				fmt.Println("第3个after")
+			}
+		},
+		func(next HandleFunc) HandleFunc {
+			return func(c *Context) {
+				fmt.Println("第4个before")
+				fmt.Println("第4个after")
+			}
+		},
+	}
+	s.ServeHTTP(nil, nil)
 }

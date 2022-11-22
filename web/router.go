@@ -1,11 +1,13 @@
 package web
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 )
 
+// 路由树
 type router struct {
 	trees map[string]*node
 }
@@ -17,14 +19,17 @@ func newRouter() *router {
 }
 
 type node struct {
-	path       string
-	fullPath   string
-	handleFunc HandleFunc
-	children   map[string]*node
-	wildcard   *node
-	pathParam  *node
-	regExpr    *regexp.Regexp
+	path        string
+	fullPath    string
+	handleFunc  HandleFunc
+	children    map[string]*node
+	wildcard    *node
+	pathParam   *node
+	regExpr     *regexp.Regexp
+	middlewares []Middleware
 }
+
+// =========================================================================================================
 
 // addRoute: register url to router
 // - 已经注册了的路由，无法被覆盖。例如 /user/home 注册两次，会冲突
@@ -64,33 +69,10 @@ func (r *router) addRoute(httpMethod, path string, handleFunc HandleFunc) {
 	fmt.Println(cur.fullPath)
 }
 
-func fetchRegexp(seg string) (string, *regexp.Regexp) {
-	for i, r := range seg {
-		if r != '(' {
-			continue
-		}
-		if !strings.HasSuffix(seg, ")") {
-			panic(fmt.Sprintf("regex format error for %s", seg))
-		}
-		regex, err := regexp.Compile(seg[i+1 : len(seg)-1])
-		if err != nil {
-			panic(fmt.Sprintf("regex format error for %s", seg))
-		}
-		return seg[:i], regex
-	}
-	return seg, nil
-}
-
-func createFullPath(n *node, path string) string {
-	if n.fullPath == "/" {
-		return "/" + path
-	}
-	return n.fullPath + "/" + path
-}
-
-// getChildOrCreate: get child node if existed, otherwise create and return
+// addRoute： get child node if existed, otherwise create and return
 func (n *node) getChildOrCreate(seg string) *node {
 	if seg[0] == ':' {
+		// 提取正则
 		seg, regex := fetchRegexp(seg)
 		if n.pathParam != nil {
 			if n.pathParam.path != seg ||
@@ -141,7 +123,33 @@ func (n *node) getChildOrCreate(seg string) *node {
 	return n.children[seg]
 }
 
-// isValidPath: check path is valid
+// addRoute：提取用户注册的路由中的正则
+func fetchRegexp(seg string) (string, *regexp.Regexp) {
+	for i, r := range seg {
+		if r != '(' {
+			continue
+		}
+		if !strings.HasSuffix(seg, ")") {
+			panic(fmt.Sprintf("regex format error for %s", seg))
+		}
+		regex, err := regexp.Compile(seg[i+1 : len(seg)-1])
+		if err != nil {
+			panic(fmt.Sprintf("regex format error for %s", seg))
+		}
+		return seg[:i], regex
+	}
+	return seg, nil
+}
+
+// addRoute：构建从root开始到当前节点到fullpath
+func createFullPath(n *node, path string) string {
+	if n.fullPath == "/" {
+		return "/" + path
+	}
+	return n.fullPath + "/" + path
+}
+
+// addRoute： check path is valid
 func isValidPath(path string) {
 	if path == "" {
 		panic("path cannot be empty")
@@ -154,7 +162,7 @@ func isValidPath(path string) {
 	}
 }
 
-// getRootOrCreate: get root node for one http method if existed, otherwise create and return
+// addRoute： get root node for one http method if existed, otherwise create and return
 func (r *router) getRootOrCreate(httpMethod string) *node {
 	root, ok := r.trees[httpMethod]
 	if !ok {
@@ -167,9 +175,13 @@ func (r *router) getRootOrCreate(httpMethod string) *node {
 	return root
 }
 
+// ================================================================================================================
+
+// 匹配到的结果
 type matchInfo struct {
 	*node
-	params map[string]string
+	params             map[string]string
+	matchedMiddlewares []Middleware
 }
 
 // findRoute: get node according to http method and url path
@@ -179,14 +191,60 @@ func (r *router) findRoute(httpMethod, path string) (*matchInfo, bool) {
 		return nil, false
 	}
 	if path == "/" {
-		return &matchInfo{node: root}, true
+		return &matchInfo{
+			node:               root,
+			matchedMiddlewares: root.middlewares, // 给root添加路由中间件
+		}, true
 	}
 
 	path = strings.Trim(path, "/")
 	segs := strings.Split(path, "/")
-	return root.getMatchInfo(segs)
+	matched, ok := root.getMatchInfo(segs)
+	if !ok {
+		return nil, false
+	}
+	// 去匹配路由中间件
+	matched.matchedMiddlewares = getMatchedMiddlewares(root, segs)
+
+	return matched, true
 }
 
+// findRoute: 匹配路由中间件
+func getMatchedMiddlewares(root *node, segs []string) []Middleware {
+	res := []Middleware{}
+	res = append(res, root.middlewares...) // root上的中间件单独加上
+	queue := []*node{root}
+	level := 0
+
+	for len(queue) > 0 && level < len(segs) {
+		size := len(queue)
+		for i := 0; i < size; i++ {
+			cur := queue[0]
+			queue = queue[1:]
+			// 越具体越后调度，所以1.通配符 2.路径参数 3.精准路由
+			// 通配符
+			if cur.wildcard != nil {
+				res = append(res, cur.wildcard.middlewares...)
+				queue = append(queue, cur.wildcard)
+			}
+			// 路径参数
+			if cur.pathParam != nil {
+				res = append(res, cur.pathParam.middlewares...)
+				queue = append(queue, cur.pathParam)
+			}
+			// 精准路由
+			if v, ok := cur.children[segs[level]]; ok {
+				res = append(res, v.middlewares...)
+				queue = append(queue, v)
+			}
+		}
+		level++
+	}
+
+	return res
+}
+
+// findRoute: getMatchInfo
 func (n *node) getMatchInfo(segs []string) (*matchInfo, bool) {
 	res := &matchInfo{params: map[string]string{}}
 	cur := n
@@ -197,6 +255,7 @@ func (n *node) getMatchInfo(segs []string) (*matchInfo, bool) {
 		}
 		// 路径参数
 		if strings.HasPrefix(child.path, ":") {
+			// 如果这个节点上有正则，就去验证一下是否匹配
 			if child.regExpr != nil && !child.regExpr.MatchString(seg) {
 				return nil, false
 			}
@@ -215,6 +274,7 @@ func (n *node) getMatchInfo(segs []string) (*matchInfo, bool) {
 	return res, true
 }
 
+// findRoute：获取当前节点的child
 func (n *node) childOf(seg string) (*node, bool) {
 	if child, ok := n.children[seg]; ok {
 		return child, true
@@ -222,6 +282,7 @@ func (n *node) childOf(seg string) (*node, bool) {
 	return n.getNotNilWildcardOrPathparam()
 }
 
+// findRoute：获取当前节点的pathparam或wildcard
 func (n *node) getNotNilWildcardOrPathparam() (*node, bool) {
 	if n.pathParam != nil && n.wildcard != nil {
 		panic("conflict between path param and wildcard")
@@ -242,7 +303,7 @@ func isLeaf(child *node) bool {
 	return false
 }
 
-// ============================================================
+// ========================================
 // getNodeV2: support backtracking matching
 func (n *node) getNodeV2(segs []string) (*node, bool) {
 	return n.getNodeV2DFS(append([]string{"/"}, segs...), 0)
@@ -279,4 +340,16 @@ func (n *node) childOfV2(seg string) ([]*node, bool) {
 		res = append(res, n.wildcard)
 	}
 	return res, len(res) > 0
+}
+
+// =========================================================================================================
+
+// 往对应的节点添加middleware
+func (r *router) addMiddlewares(httpMethod, path string, middlewares ...Middleware) error {
+	matched, ok := r.findRoute(httpMethod, path)
+	if !ok {
+		return errors.New(fmt.Sprintf("[method:%s] [path:%s] not exist", httpMethod, path))
+	}
+	matched.middlewares = append(matched.middlewares, middlewares...)
+	return nil
 }

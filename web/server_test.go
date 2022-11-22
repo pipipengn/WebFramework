@@ -419,7 +419,6 @@ func TestFindRouter(t *testing.T) {
 			wantNode:       r.trees[http.MethodGet].children["match"].pathParam.pathParam,
 			wantPathParams: map[string]string{"pid": "123", "mid": "456"},
 		},
-		// hw
 		{
 			name:      "/a/b/* = /a/b/c/d/f/e",
 			method:    http.MethodGet,
@@ -458,11 +457,117 @@ func TestFindRouter(t *testing.T) {
 			}
 		})
 	}
-
 }
 
 func TestFetchRegex(t *testing.T) {
 	seg, regex := fetchRegexp(":id(^[0-9]+$)")
 	fmt.Println(seg)
 	fmt.Println(regex.String())
+}
+
+// 测试路由中间件
+func TestRouteMiddleware(t *testing.T) {
+
+	actual := []string{}
+
+	var md1 Middleware = func(next HandleFunc) HandleFunc {
+		return func(c *Context) {
+			actual = append(actual, "md1")
+			next(c)
+		}
+	}
+	var md2 Middleware = func(next HandleFunc) HandleFunc {
+		return func(c *Context) {
+			actual = append(actual, "md2")
+			next(c)
+		}
+	}
+	var md3 Middleware = func(next HandleFunc) HandleFunc {
+		return func(c *Context) {
+			actual = append(actual, "md3")
+			next(c)
+		}
+	}
+	var md4 Middleware = func(next HandleFunc) HandleFunc {
+		return func(c *Context) {
+			actual = append(actual, "md4")
+			next(c)
+		}
+	}
+	var md5 Middleware = func(next HandleFunc) HandleFunc {
+		return func(c *Context) {
+			actual = append(actual, "md5")
+			next(c)
+		}
+	}
+	var md6 Middleware = func(next HandleFunc) HandleFunc {
+		return func(c *Context) {
+			actual = append(actual, "md6")
+			next(c)
+		}
+	}
+	var md7 Middleware = func(next HandleFunc) HandleFunc {
+		return func(c *Context) {
+			actual = append(actual, "md7")
+			next(c)
+		}
+	}
+	var md8 Middleware = func(next HandleFunc) HandleFunc {
+		return func(c *Context) {
+			actual = append(actual, "md8")
+			next(c)
+		}
+	}
+	var md9 Middleware = func(next HandleFunc) HandleFunc {
+		return func(c *Context) {
+			actual = append(actual, "md9")
+			next(c)
+		}
+	}
+
+	r := newRouter()
+	var mockHandleFunc HandleFunc = func(c *Context) {}
+	r.addRoute(http.MethodGet, "/*/b", mockHandleFunc)
+	r.addRoute(http.MethodGet, "/a/d", mockHandleFunc)
+	r.addRoute(http.MethodGet, "/a/b/c", mockHandleFunc)
+	r.addRoute(http.MethodGet, "/a/:id/c", mockHandleFunc)
+
+	_ = r.addMiddlewares(http.MethodGet, "/", md1)
+	_ = r.addMiddlewares(http.MethodGet, "/a", md2)
+	_ = r.addMiddlewares(http.MethodGet, "/*", md3)
+	_ = r.addMiddlewares(http.MethodGet, "/a/:id", md4)
+	_ = r.addMiddlewares(http.MethodGet, "/a/b", md5)
+	_ = r.addMiddlewares(http.MethodGet, "/a/d", md6)
+	_ = r.addMiddlewares(http.MethodGet, "/*/b", md7)
+	_ = r.addMiddlewares(http.MethodGet, "/a/:id/c", md8)
+	_ = r.addMiddlewares(http.MethodGet, "/a/b/c", md9)
+
+	testcase := []struct {
+		name   string
+		method string
+		path   string
+		want   []string
+	}{
+		{
+			name:   "1",
+			method: http.MethodGet,
+			path:   "/a/b/c",
+			want:   []string{"md1", "md3", "md2", "md7", "md4", "md5", "md8", "md9"},
+		},
+	}
+
+	for _, tt := range testcase {
+		t.Run(tt.name, func(t *testing.T) {
+			matched, ok := r.findRoute(tt.method, tt.path)
+			assert.True(t, ok)
+
+			cur := matched.handleFunc
+			for i := len(matched.matchedMiddlewares) - 1; i >= 0; i-- {
+				cur = matched.matchedMiddlewares[i](cur)
+			}
+			cur(&Context{})
+			equal := reflect.DeepEqual(tt.want, actual)
+			assert.True(t, equal, "mdls not equal")
+		})
+	}
 }
