@@ -87,6 +87,8 @@ func (d *Deleter[T]) buildExpression(expr Expression) error {
 		if ok {
 			d.builder.WriteString(")")
 		}
+	default:
+		return errs.NewErrUnsupportedExpression(expr)
 	}
 
 	return nil
