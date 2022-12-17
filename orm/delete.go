@@ -2,7 +2,7 @@ package orm
 
 import (
 	"WebFramework/orm/internal/errs"
-	model2 "WebFramework/orm/model"
+	"WebFramework/orm/model"
 	"strings"
 )
 
@@ -11,13 +11,13 @@ type Deleter[T any] struct {
 	where   []Predicate
 	args    []any
 	builder strings.Builder
-	model   *model2.Model
-	r       *model2.Registory
+	model   *model.Model
+	r       *model.Registory
 }
 
 func NewDeleter[T any]() *Deleter[T] {
 	return &Deleter[T]{
-		r: model2.NewRegistory(),
+		r: model.NewRegistory(),
 	}
 }
 
@@ -56,6 +56,8 @@ func (d *Deleter[T]) Build() (*Query, error) {
 
 func (d *Deleter[T]) buildExpression(expr Expression) error {
 	switch exp := expr.(type) {
+	case nil:
+		return nil
 	case value:
 		d.builder.WriteString("?")
 		d.addArg(exp.val)
