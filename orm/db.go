@@ -12,6 +12,12 @@ type DB struct {
 
 type DBOption func(db *DB)
 
+func WithRegistory(r model.IRegistory) DBOption {
+	return func(db *DB) {
+		db.r = r
+	}
+}
+
 func OpenDB(db *sql.DB, opts ...DBOption) (*DB, error) {
 	res := &DB{
 		r:     model.NewRegistory(),
