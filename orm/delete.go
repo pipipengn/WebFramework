@@ -2,6 +2,7 @@ package orm
 
 import (
 	"WebFramework/orm/internal/errs"
+	model2 "WebFramework/orm/model"
 	"strings"
 )
 
@@ -10,22 +11,25 @@ type Deleter[T any] struct {
 	where   []Predicate
 	args    []any
 	builder strings.Builder
-	model   *model
+	model   *model2.Model
+	r       *model2.Registory
 }
 
 func NewDeleter[T any]() *Deleter[T] {
-	return &Deleter[T]{}
+	return &Deleter[T]{
+		r: model2.NewRegistory(),
+	}
 }
 
 func (d *Deleter[T]) Build() (*Query, error) {
 	d.builder.WriteString("DELETE FROM ")
-	m, err := parseModel(new(T))
+	m, err := d.r.Register(new(T))
 	if err != nil {
 		return nil, err
 	}
 	d.model = m
 
-	tableName := m.tableName
+	tableName := m.TableName
 	if d.table != "" {
 		tableName = d.table
 	}
@@ -57,11 +61,11 @@ func (d *Deleter[T]) buildExpression(expr Expression) error {
 		d.addArg(exp.val)
 	case Column:
 		d.builder.WriteString("`")
-		field, ok := d.model.fields[exp.name]
+		field, ok := d.model.FieldMap[exp.name]
 		if !ok {
 			return errs.NewErrUnknowField(exp.name)
 		}
-		d.builder.WriteString(field.colName)
+		d.builder.WriteString(field.ColName)
 		d.builder.WriteString("`")
 	case Predicate:
 		_, ok := exp.left.(Predicate)
@@ -101,7 +105,7 @@ func (d *Deleter[T]) addArg(arg any) {
 	d.args = append(d.args, arg)
 }
 
-// From accepts model definition
+// From accepts Model definition
 func (d *Deleter[T]) From(table string) *Deleter[T] {
 	d.table = table
 	return d

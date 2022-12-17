@@ -2,6 +2,8 @@ package orm
 
 import (
 	"WebFramework/orm/internal/errs"
+	"WebFramework/orm/internal/valuer"
+	"WebFramework/orm/model"
 	"context"
 	"strings"
 )
@@ -11,16 +13,33 @@ type Selector[T any] struct {
 	builder strings.Builder
 	where   []Predicate
 	args    []any
-	model   *model
+	model   *model.Model
+	db      *DB
 }
 
-func NewSelector[T any]() *Selector[T] {
-	return &Selector[T]{}
+func NewSelector[T any](db *DB) *Selector[T] {
+	return &Selector[T]{db: db}
 }
 
 func (s *Selector[T]) Get(ctx context.Context) (*T, error) {
-	//TODO implement me
-	panic("implement me")
+	query, err := s.Build()
+	if err != nil {
+		return nil, err
+	}
+
+	db := s.db.sqldb
+	rows, err := db.QueryContext(ctx, query.SQL, query.Args...)
+	if err != nil {
+		return nil, err
+	}
+	if !rows.Next() {
+		return nil, ErrNoRows
+	}
+
+	t := new(T)
+	val := valuer.NewUnsafeValue(s.model, t)
+	err = val.SetColumns(rows)
+	return t, err
 }
 
 func (s *Selector[T]) GetMany(ctx context.Context) ([]*T, error) {
@@ -30,7 +49,7 @@ func (s *Selector[T]) GetMany(ctx context.Context) ([]*T, error) {
 
 func (s *Selector[T]) Build() (*Query, error) {
 	s.builder.WriteString("SELECT * FROM ")
-	m, err := parseModel(new(T))
+	m, err := s.db.r.Get(new(T))
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +57,7 @@ func (s *Selector[T]) Build() (*Query, error) {
 
 	if s.table == "" {
 		s.builder.WriteString("`")
-		s.builder.WriteString(m.tableName)
+		s.builder.WriteString(m.TableName)
 		s.builder.WriteString("`")
 	} else {
 		s.builder.WriteString(s.table)
@@ -91,11 +110,11 @@ func (s *Selector[T]) buildExpression(expr Expression) error {
 		}
 	case Column:
 		s.builder.WriteString("`")
-		field, ok := s.model.fields[exp.name]
+		field, ok := s.model.FieldMap[exp.name]
 		if !ok {
 			return errs.NewErrUnknowField(exp.name)
 		}
-		s.builder.WriteString(field.colName)
+		s.builder.WriteString(field.ColName)
 		s.builder.WriteString("`")
 	case value:
 		s.builder.WriteString("?")
