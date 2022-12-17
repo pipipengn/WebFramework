@@ -10,13 +10,14 @@ import (
 
 type unsafeValue struct {
 	model *model.Model
-	t     any // the pointer of T
+	addr  unsafe.Pointer
 }
 
 var _ Creator = NewUnsafeValue
 
 func NewUnsafeValue(model *model.Model, t any) IValue {
-	return &unsafeValue{model: model, t: t}
+	addr := reflect.ValueOf(t).UnsafePointer()
+	return &unsafeValue{model: model, addr: addr}
 }
 
 func (u *unsafeValue) SetColumns(rows *sql.Rows) error {
@@ -26,13 +27,12 @@ func (u *unsafeValue) SetColumns(rows *sql.Rows) error {
 	}
 
 	vals := make([]any, 0, len(cols))
-	addr := reflect.ValueOf(u.t).UnsafePointer()
 	for _, col := range cols {
 		fd, ok := u.model.ColumnMap[col]
 		if !ok {
 			return errs.NewErrUnknowColumn(col)
 		}
-		val := reflect.NewAt(fd.Type, unsafe.Pointer(uintptr(addr)+fd.Offset))
+		val := reflect.NewAt(fd.Type, unsafe.Pointer(uintptr(u.addr)+fd.Offset))
 		vals = append(vals, val.Interface())
 	}
 

@@ -2,7 +2,6 @@ package orm
 
 import (
 	"WebFramework/orm/internal/errs"
-	"WebFramework/orm/internal/valuer"
 	"WebFramework/orm/model"
 	"context"
 	"strings"
@@ -37,7 +36,7 @@ func (s *Selector[T]) Get(ctx context.Context) (*T, error) {
 	}
 
 	t := new(T)
-	val := valuer.NewUnsafeValue(s.model, t)
+	val := s.db.valCreator(s.model, t)
 	err = val.SetColumns(rows)
 	return t, err
 }

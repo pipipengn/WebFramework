@@ -1,13 +1,15 @@
 package orm
 
 import (
+	"WebFramework/orm/internal/valuer"
 	"WebFramework/orm/model"
 	"database/sql"
 )
 
 type DB struct {
-	r     model.IRegistory
-	sqldb *sql.DB
+	r          model.IRegistory
+	sqldb      *sql.DB
+	valCreator valuer.Creator
 }
 
 type DBOption func(db *DB)
@@ -18,10 +20,17 @@ func WithRegistory(r model.IRegistory) DBOption {
 	}
 }
 
+func WithReflectCreator() DBOption {
+	return func(db *DB) {
+		db.valCreator = valuer.NewReflectValue
+	}
+}
+
 func OpenDB(db *sql.DB, opts ...DBOption) (*DB, error) {
 	res := &DB{
-		r:     model.NewRegistory(),
-		sqldb: db,
+		r:          model.NewRegistory(),
+		sqldb:      db,
+		valCreator: valuer.NewUnsafeValue,
 	}
 	for _, opt := range opts {
 		opt(res)
