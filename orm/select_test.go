@@ -12,6 +12,13 @@ import (
 	"testing"
 )
 
+type TestModel struct {
+	Id        int64
+	Age       int8
+	FirstName string
+	LastName  *sql.NullString
+}
+
 func TestSelector_Build(t *testing.T) {
 	db := &DB{
 		r: model.NewRegistory(),
@@ -113,13 +120,6 @@ func TestSelector_Build(t *testing.T) {
 	}
 }
 
-type TestModel struct {
-	Id        int64
-	Age       int8
-	FirstName string
-	LastName  *sql.NullString
-}
-
 func TestSelector_Get(t *testing.T) {
 	sqldb, mock, err := sqlmock.New()
 	require.NoError(t, err)
@@ -180,6 +180,150 @@ func TestSelector_Get(t *testing.T) {
 				return
 			}
 			assert.Equal(t, tt.want, res)
+		})
+	}
+}
+
+func TestSelector_Select(t *testing.T) {
+	mockdb, _, _ := sqlmock.New()
+	db, _ := OpenDB(mockdb)
+
+	tests := []struct {
+		name    string
+		s       QueryBuilder
+		want    *Query
+		wantErr error
+	}{
+		{
+			name: "1",
+			s:    NewSelector[TestModel](db).Select(Col("Id"), Col("Age")),
+			want: &Query{
+				SQL: "SELECT `id`,`age` FROM `test_model`;",
+			},
+		},
+		{
+			name:    "invalid",
+			s:       NewSelector[TestModel](db).Select(Col("Iddd")),
+			wantErr: errs.NewErrUnknowField("Iddd"),
+		},
+		{
+			name: "avg",
+			s:    NewSelector[TestModel](db).Select(Avg("Age")),
+			want: &Query{
+				SQL: "SELECT AVG(`age`) FROM `test_model`;",
+			},
+		},
+		{
+			name: "sum",
+			s:    NewSelector[TestModel](db).Select(Sum("Age")),
+			want: &Query{
+				SQL: "SELECT SUM(`age`) FROM `test_model`;",
+			},
+		},
+		{
+			name: "max",
+			s:    NewSelector[TestModel](db).Select(Max("Age")),
+			want: &Query{
+				SQL: "SELECT MAX(`age`) FROM `test_model`;",
+			},
+		},
+		{
+			name: "min",
+			s:    NewSelector[TestModel](db).Select(Min("Age")),
+			want: &Query{
+				SQL: "SELECT MIN(`age`) FROM `test_model`;",
+			},
+		},
+		{
+			name: "count",
+			s:    NewSelector[TestModel](db).Select(Count("Age")),
+			want: &Query{
+				SQL: "SELECT COUNT(`age`) FROM `test_model`;",
+			},
+		},
+		{
+			name:    "aggregate invalid",
+			s:       NewSelector[TestModel](db).Select(Count("Ageddddd")),
+			wantErr: errs.NewErrUnknowField("Ageddddd"),
+		},
+		{
+			name: "aggregate many",
+			s:    NewSelector[TestModel](db).Select(Count("Age"), Avg("Age")),
+			want: &Query{
+				SQL: "SELECT COUNT(`age`),AVG(`age`) FROM `test_model`;",
+			},
+		},
+		{
+			name: "raw",
+			s:    NewSelector[TestModel](db).Select(Raw("COUNT(DISTINCT first_name)")),
+			want: &Query{
+				SQL: "SELECT COUNT(DISTINCT first_name) FROM `test_model`;",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			query, err := tt.s.Build()
+			assert.Equal(t, tt.wantErr, err)
+			if err != nil {
+				return
+			}
+			assert.Equal(t, tt.want, query)
+		})
+	}
+}
+
+func TestRawExpr(t *testing.T) {
+	mockdb, _, _ := sqlmock.New()
+	db, _ := OpenDB(mockdb)
+
+	tests := []struct {
+		name    string
+		s       QueryBuilder
+		want    *Query
+		wantErr error
+	}{
+		{
+			name: "raw1",
+			s:    NewSelector[TestModel](db).Select(Raw("COUNT(DISTINCT first_name)")),
+			want: &Query{
+				SQL: "SELECT COUNT(DISTINCT first_name) FROM `test_model`;",
+			},
+		},
+		{
+			name: "raw2",
+			s:    NewSelector[TestModel](db).Where(Raw("id < ?", 12).AsPredicate()),
+			want: &Query{
+				SQL:  "SELECT * FROM `test_model` WHERE id < ?;",
+				Args: []any{12},
+			},
+		},
+		{
+			name: "raw3",
+			s:    NewSelector[TestModel](db).Where(Col("Id").Eq(Raw("age + ?", 1))),
+			want: &Query{
+				SQL:  "SELECT * FROM `test_model` WHERE `id`=age + ?;",
+				Args: []any{1},
+			},
+		},
+		{
+			name: "raw4",
+			s:    NewSelector[TestModel](db).Where(Col("Id").Eq(Raw("age + 1"))),
+			want: &Query{
+				SQL: "SELECT * FROM `test_model` WHERE `id`=age + 1;",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			query, err := tt.s.Build()
+			assert.Equal(t, tt.wantErr, err)
+			if err != nil {
+				return
+			}
+			assert.Equal(t, tt.want, query)
 		})
 	}
 }

@@ -14,6 +14,7 @@ type Selector[T any] struct {
 	args    []any
 	model   *model.Model
 	db      *DB
+	columns []Selectable
 }
 
 func NewSelector[T any](db *DB) *Selector[T] {
@@ -47,12 +48,17 @@ func (s *Selector[T]) GetMany(ctx context.Context) ([]*T, error) {
 }
 
 func (s *Selector[T]) Build() (*Query, error) {
-	s.builder.WriteString("SELECT * FROM ")
 	m, err := s.db.r.Get(new(T))
 	if err != nil {
 		return nil, err
 	}
 	s.model = m
+
+	s.builder.WriteString("SELECT ")
+	if err = s.buildColumns(); err != nil {
+		return nil, err
+	}
+	s.builder.WriteString(" FROM ")
 
 	if s.table == "" {
 		s.builder.WriteString("`")
@@ -77,6 +83,37 @@ func (s *Selector[T]) Build() (*Query, error) {
 		SQL:  s.builder.String() + ";",
 		Args: s.args,
 	}, nil
+}
+
+func (s *Selector[T]) buildColumns() error {
+	if len(s.columns) == 0 {
+		s.builder.WriteString("*")
+		return nil
+	}
+
+	for i, col := range s.columns {
+		if i > 0 {
+			s.builder.WriteString(",")
+		}
+		switch c := col.(type) {
+		case Column:
+			if err := s.buildColumn(c.name); err != nil {
+				return err
+			}
+		case Aggregate:
+			s.builder.WriteString(c.fn)
+			s.builder.WriteString("(")
+			if err := s.buildColumn(c.arg); err != nil {
+				return err
+			}
+			s.builder.WriteString(")")
+		case RawExpr:
+			s.builder.WriteString(c.raw)
+			s.addArg(c.args...)
+		}
+	}
+
+	return nil
 }
 
 func (s *Selector[T]) buildExpression(expr Expression) error {
@@ -108,27 +145,38 @@ func (s *Selector[T]) buildExpression(expr Expression) error {
 			s.builder.WriteString(")")
 		}
 	case Column:
-		s.builder.WriteString("`")
-		field, ok := s.model.FieldMap[exp.name]
-		if !ok {
-			return errs.NewErrUnknowField(exp.name)
-		}
-		s.builder.WriteString(field.ColName)
-		s.builder.WriteString("`")
+		return s.buildColumn(exp.name)
 	case value:
 		s.builder.WriteString("?")
 		s.addArg(exp.val)
+	case RawExpr:
+		s.builder.WriteString(exp.raw)
+		s.addArg(exp.args...)
 	default:
 		return errs.NewErrUnsupportedExpression(expr)
 	}
 	return nil
 }
 
-func (s *Selector[T]) addArg(val any) {
+func (s *Selector[T]) buildColumn(col string) error {
+	s.builder.WriteString("`")
+	field, ok := s.model.FieldMap[col]
+	if !ok {
+		return errs.NewErrUnknowField(col)
+	}
+	s.builder.WriteString(field.ColName)
+	s.builder.WriteString("`")
+	return nil
+}
+
+func (s *Selector[T]) addArg(val ...any) {
+	if len(val) == 0 {
+		return
+	}
 	if s.args == nil {
 		s.args = make([]any, 0, 8)
 	}
-	s.args = append(s.args, val)
+	s.args = append(s.args, val...)
 }
 
 func (s *Selector[T]) From(table string) *Selector[T] {
@@ -139,4 +187,13 @@ func (s *Selector[T]) From(table string) *Selector[T] {
 func (s *Selector[T]) Where(p ...Predicate) *Selector[T] {
 	s.where = append(s.where, p...)
 	return s
+}
+
+func (s *Selector[T]) Select(cols ...Selectable) *Selector[T] {
+	s.columns = cols
+	return s
+}
+
+type Selectable interface {
+	selectable()
 }
